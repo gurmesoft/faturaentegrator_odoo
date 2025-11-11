@@ -239,7 +239,8 @@ class FESendOrderWizard(models.TransientModel):
             'waybill_date': '',
             'cash_sale': True,
             'payment_date': (self.payment_date or fields.Date.today()).isoformat() if hasattr(self, 'payment_date') else fields.Date.today().isoformat(),
-            'callback_url': self.env['ir.config_parameter'].sudo().get_param('web.base.url') + '/ginvoice-notification',
+            #'callback_url': self.env['ir.config_parameter'].sudo().get_param('web.base.url') + '/ginvoice-notification',
+            'callback_url': 'https://11z27pqh6o.sharedwithexpose.com/ginvoice-notification',
             'lines': lines,
             'customer': {
                 'id': order.partner_id.id,

@@ -32,7 +32,7 @@ class FEClient(models.Model):
     def _base_url(self) -> str:
         # Tek sabit taban adresi kullanılır
         # Referans: https://documenter.getpostman.com/view/25047990/2sB3HrmHeZ#intro
-        return 'https://app.faturaentegrator.com/api'
+        return 'https://staging.faturaentegrator.com/api'
 
     @api.model
     def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
