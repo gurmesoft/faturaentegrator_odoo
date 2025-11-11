@@ -18,7 +18,7 @@
         - Callback desteği
     """,
     'category': 'Accounting/Invoicing',
-    'author': 'Fatura Entegratör',
+    'author': 'Gurmehub',
     'maintainer': 'Gurmehub',
     'website': 'https://faturaentegrator.com',
     'license': 'LGPL-3',
