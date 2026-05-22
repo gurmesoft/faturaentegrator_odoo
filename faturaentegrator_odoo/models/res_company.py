@@ -232,7 +232,7 @@ class ResCompany(models.Model):
                 client = company.fe_get_client()
                 base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url') or ''
                 payload = {
-                    'sale_channel': 'wordpress',
+                    'sale_channel': 'odoo',
                     'settings': {
                         'domain': base_url,
                     },
@@ -240,13 +240,16 @@ class ResCompany(models.Model):
                 sc = client.integration_sale_channel_create(payload)
                 sc_data = sc.get('data') or sc
                 sc_id = sc_data.get('id')
-                sc_name = sc_data.get('name') or 'WordPress'
+                sc_name = sc_data.get('name') or 'Odoo'
                 if sc_id:
                     company.write({'fe_sale_channel_id': sc_id, 'fe_sale_channel_name': sc_name})
                     company.message_post(body=_('FE Satış Kanalı oluşturuldu: %s') % sc_name)
 
     def fe_connect(self):
-        self._fe_create_sale_channel_if_needed()
+        for company in self:
+            client = company.fe_get_client()
+            client.check_connection()
+            company._fe_create_sale_channel_if_needed()
         return True
 
     def fe_disconnect(self):
@@ -263,6 +266,8 @@ class ResCompany(models.Model):
         return True
 
     def write(self, vals):
+        if 'fe_api_key' in vals and vals['fe_api_key']:
+            vals['fe_api_key'] = vals['fe_api_key'].strip()
         res = super().write(vals)
         # Kaydet sonrası otomatik bağlantı kurulumu / temizliği
         for company in self:

@@ -20,23 +20,23 @@ class FEClient(models.Model):
     @api.model
     def _headers(self) -> Dict[str, str]:
         company = self._get_company()
-        if not company.fe_api_key:
+        api_key = (company.fe_api_key or '').strip()
+        if not api_key:
             raise UserError(_('Lütfen şirket için Fatura Entegratör API Key tanımlayın.'))
         return {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': f'Bearer {company.fe_api_key}',
+            'Authorization': f'Bearer {api_key}',
         }
 
     @api.model
     def _base_url(self) -> str:
-        # Tek sabit taban adresi kullanılır
-        # Referans: https://documenter.getpostman.com/view/25047990/2sB3HrmHeZ#intro
-        return 'https://staging.faturaentegrator.com/api'
+        return 'https://app.faturaentegrator.com/api'
 
     @api.model
     def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        url = f"{self._base_url()}/{path.lstrip('/')}"
+        base_url = self._base_url()
+        url = f"{base_url}/{path.lstrip('/')}"
         try:
             resp = requests.request(method=method.upper(), url=url, headers=self._headers(), json=payload, params=params, timeout=30)
         except Exception as exc:  # noqa: BLE001
@@ -44,7 +44,10 @@ class FEClient(models.Model):
             raise UserError(_('Fatura Entegratör bağlantı hatası: %s') % exc)
 
         if resp.status_code >= 400:
-            _logger.error('Fatura Entegratör hata %s: %s', resp.status_code, resp.text)
+            _logger.error(
+                'Fatura Entegratör hata %s [%s %s]: %s',
+                resp.status_code, method.upper(), url, resp.text,
+            )
             try:
                 data = resp.json()
             except Exception:  # noqa: BLE001
