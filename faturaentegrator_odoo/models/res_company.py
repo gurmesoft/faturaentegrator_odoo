@@ -245,11 +245,21 @@ class ResCompany(models.Model):
                     company.write({'fe_sale_channel_id': sc_id, 'fe_sale_channel_name': sc_name})
                     company.message_post(body=_('FE Satış Kanalı oluşturuldu: %s') % sc_name)
 
+    def _fe_sync_invoice_integrations(self):
+        """Bağlan sırasında fatura entegrasyonlarını FE'den senkronize et."""
+        Integration = self.env['fe.invoice.integration']
+        for company in self:
+            integrations = Integration.sync_for_company(company)
+            company.message_post(
+                body=_('FE fatura entegrasyonları güncellendi (%s adet).') % len(integrations)
+            )
+
     def fe_connect(self):
         for company in self:
             client = company.fe_get_client()
             client.check_connection()
             company._fe_create_sale_channel_if_needed()
+            company._fe_sync_invoice_integrations()
         return True
 
     def fe_disconnect(self):
@@ -261,6 +271,7 @@ class ResCompany(models.Model):
                 except Exception:  # noqa: BLE001
                     # Sunucu tarafında zaten kaldırılmış olabilir; yine de temizle.
                     pass
+            self.env['fe.invoice.integration'].search([('company_id', '=', company.id)]).unlink()
             company.write({'fe_sale_channel_id': False, 'fe_sale_channel_name': False, 'fe_api_key': False})
             company.message_post(body=_('FE bağlantısı kesildi ve API anahtarı temizlendi.'))
         return True

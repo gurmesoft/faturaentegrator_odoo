@@ -46,7 +46,7 @@
                         <field name="street"/>
                         <field name="city"/>
                         <field name="zip"/>
-                        <field name="country_code"/>
+                        <field name="country_code" string="Ülke"/>
                     </group>
                     <group string="Tutarlar">
                         <field name="currency_id"/>

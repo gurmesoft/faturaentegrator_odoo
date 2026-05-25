@@ -2,15 +2,6 @@ from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
 
-class FEIntegrationTemp(models.TransientModel):
-    _name = 'fe.integration.temp'
-    _description = 'FE Integration Temp (Transient)'
-
-    name = fields.Char(required=True)
-    external_id = fields.Char(required=True)
-    company_id = fields.Many2one('res.company', required=True)
-
-
 class FESendOrderWizard(models.TransientModel):
     _name = 'fe.send.order.wizard'
     _description = 'Send Order to Fatura Entegrator Wizard'
@@ -18,12 +9,12 @@ class FESendOrderWizard(models.TransientModel):
     order_id = fields.Many2one('sale.order', required=True, ondelete='cascade')
     company_id = fields.Many2one('res.company', required=True)
     integration_choice_id = fields.Many2one(
-        'fe.integration.temp',
+        'fe.invoice.integration',
         string='Entegrasyon',
         domain="[('company_id','=',company_id)]",
         required=True,
     )
-    line_ids = fields.One2many('fe.send.order.wizard.line', 'wizard_id', string='Satırlar', readonly=True)
+    line_ids = fields.One2many('fe.send.order.wizard.line', 'wizard_id', string='Satırlar')
 
     # Düzenlenebilir Müşteri Bilgileri
     customer_name = fields.Char(string='Unvan/Ad Soyad')
@@ -33,7 +24,7 @@ class FESendOrderWizard(models.TransientModel):
     street = fields.Char(string='Adres')
     city = fields.Char(string='İl')
     zip = fields.Char(string='Posta Kodu')
-    country_code = fields.Char(string='Ülke Kodu')
+    country_code = fields.Char(string='Ülke')
     currency_id = fields.Many2one('res.currency', string='Para Birimi')
     amount_untaxed = fields.Monetary(string='Vergisiz Tutar', currency_field='currency_id', readonly=True)
     amount_tax = fields.Monetary(string='Vergi', currency_field='currency_id', readonly=True)
@@ -67,21 +58,9 @@ class FESendOrderWizard(models.TransientModel):
         company = self.env.company
         if vals.get('company_id'):
             company = self.env['res.company'].browse(vals['company_id'])
-        # FE'den entegrasyon listesini çek
-        client = self.env['fe.client'].with_company(company.id)
-        data = client.integration_invoice_index()
-        items = data.get('data') or data or []
-        if isinstance(items, dict):
-            items = items.get('items') or []
-        for it in items:
-            name = it.get('name') or it.get('title') or (it.get('vendor') and it['vendor'].get('name')) or 'Integration'
-            ext_id = it.get('id') or it.get('uuid') or ''
-            if ext_id:
-                self.env['fe.integration.temp'].create({
-                    'name': name,
-                    'external_id': str(ext_id),
-                    'company_id': company.id,
-                })
+        default_integration = self.env['fe.invoice.integration'].default_choice_for_company(company)
+        if default_integration and (not fields_list or 'integration_choice_id' in fields_list):
+            vals['integration_choice_id'] = default_integration
         # Satırları One2many komutlarıyla set et
         if vals.get('order_id'):
             order = self.env['sale.order'].browse(vals['order_id'])
@@ -95,7 +74,7 @@ class FESendOrderWizard(models.TransientModel):
                 'street': ((partner.street or '') + ' ' + (partner.street2 or '')).strip(),
                 'city': (partner.state_id and partner.state_id.name) or '',
                 'zip': partner.zip or '',
-                'country_code': partner.country_id and partner.country_id.code or '',
+                'country_code': self.env['fe.country.mapper'].map_partner_country(partner),
                 'currency_id': order.currency_id.id,
                 'amount_total': order.amount_total,
                 'amount_untaxed': order.amount_untaxed,
@@ -132,7 +111,7 @@ class FESendOrderWizard(models.TransientModel):
                     'price_unit': line.price_unit,
                     'taxes': taxes,
                     'tax_rate': tax_rate,
-                    'subtotal': line.price_subtotal,
+                    'subtotal': line.price_total,
                     'currency_id': order.currency_id.id,
                     'exemption_code': exemption_code,
                     'exemption_reason': exemption_reason,
@@ -162,6 +141,10 @@ class FESendOrderWizard(models.TransientModel):
         self.ensure_one()
         order = self.order_id
         if not self.integration_choice_id:
+            if not self.env['fe.invoice.integration'].search([('company_id', '=', self.company_id.id)], limit=1):
+                raise UserError(
+                    _('Kayıtlı fatura entegrasyonu yok. Ayarlar > Şirketler > Fatura Entegratör bölümünden Bağlan\'a tıklayın.')
+                )
             raise UserError(_('Lütfen bir entegrasyon seçin.'))
         client = order.company_id.fe_get_client()
         # WordPress eklentisine uyumlu "create_request" şemasına göre payload hazırla
@@ -256,7 +239,7 @@ class FESendOrderWizard(models.TransientModel):
                 'district': (order.partner_invoice_id or order.partner_id).city or '',
                 'address': (self.street or '')[:250],
                 'postcode': self.zip or '',
-                'country': self.country_code or '',
+                'country': self.env['fe.country.mapper'].map_country_name(self.country_code or ''),
                 'iban': None,
             },
             'is_need_shipment': bool(self.is_need_shipment),
@@ -368,7 +351,7 @@ class FESendOrderWizardLine(models.TransientModel):
     price_unit = fields.Monetary(string='Birim Fiyat', currency_field='currency_id')
     taxes = fields.Char(string='Vergiler')
     tax_rate = fields.Float(string='Vergi Oranı (%)', readonly=True)
-    subtotal = fields.Monetary(string='Ara Toplam', currency_field='currency_id')
+    subtotal = fields.Monetary(string='Toplam (KDV Dahil)', currency_field='currency_id')
     currency_id = fields.Many2one('res.currency', default=lambda self: self.env.company.currency_id.id)
     exemption_code = fields.Char(string='Muafiyet Kodu')
     exemption_reason = fields.Char(string='Muafiyet Sebebi')
@@ -378,15 +361,61 @@ class FESendInvoiceWizard(models.TransientModel):
     _name = 'fe.send.invoice.wizard'
     _description = 'Send Invoice to Fatura Entegrator Wizard'
 
+    @api.model
+    def _invoice_product_lines(self, move):
+        """Fatura ürün satırlarını döndür (Odoo 18 display_type='product')."""
+        lines = move.invoice_line_ids.filtered(
+            lambda l: l.display_type == 'product' and l.quantity
+        )
+        if not lines:
+            skip_types = (
+                'line_section', 'line_note', 'tax', 'payment_term',
+                'rounding', 'epd', 'cogs', 'discount',
+            )
+            lines = move.invoice_line_ids.filtered(
+                lambda l: l.product_id
+                and l.display_type not in skip_types
+                and l.quantity
+            )
+        return lines
+
+    @api.model
+    def _prepare_invoice_line_commands(self, move, company):
+        """Sihirbaz satır komutlarını oluştur."""
+        commands = []
+        for line in self._invoice_product_lines(move):
+            taxes = ', '.join([f"{t.name} ({t.amount}%)" for t in line.tax_ids])
+            tax_rate = 0
+            if line.tax_ids:
+                tax_rate = line.tax_ids[0].amount or 0
+            exemption_code = None
+            exemption_reason = None
+            if tax_rate == 0:
+                exemption_code = company.fe_exemption_code or None
+                exemption_reason = company.fe_exemption_reason or None
+            commands.append((0, 0, {
+                'name': line.name,
+                'sku': line.product_id.default_code or '',
+                'quantity': line.quantity,
+                'price_unit': line.price_unit,
+                'taxes': taxes,
+                'tax_rate': tax_rate,
+                'subtotal': line.price_total,
+                'currency_id': move.currency_id.id,
+                'exemption_code': exemption_code,
+                'exemption_reason': exemption_reason,
+            }))
+        return commands
+
     move_id = fields.Many2one('account.move', required=True, ondelete='cascade')
     company_id = fields.Many2one('res.company', required=True)
     integration_choice_id = fields.Many2one(
-        'fe.integration.temp',
+        'fe.invoice.integration',
         string='Entegrasyon',
         domain="[('company_id','=',company_id)]",
         required=True,
     )
-    line_ids = fields.One2many('fe.send.invoice.wizard.line', 'wizard_id', string='Satırlar', readonly=True)
+    line_ids = fields.One2many('fe.send.invoice.wizard.line', 'wizard_id', string='Satırlar')
 
     # Düzenlenebilir Müşteri Bilgileri
     customer_name = fields.Char(string='Unvan/Ad Soyad')
@@ -396,7 +425,7 @@ class FESendInvoiceWizard(models.TransientModel):
     street = fields.Char(string='Adres')
     city = fields.Char(string='İl')
     zip = fields.Char(string='Posta Kodu')
-    country_code = fields.Char(string='Ülke Kodu')
+    country_code = fields.Char(string='Ülke')
     currency_id = fields.Many2one('res.currency', string='Para Birimi')
     amount_untaxed = fields.Monetary(string='Vergisiz Tutar', currency_field='currency_id', readonly=True)
     amount_tax = fields.Monetary(string='Vergi', currency_field='currency_id', readonly=True)
@@ -424,27 +453,24 @@ class FESendInvoiceWizard(models.TransientModel):
     shipment_courier_tax_number = fields.Char(string='Kurye Vergi No')
     shipment_delivery_date = fields.Date(string='Teslimat Tarihi')
 
+    @api.onchange('move_id')
+    def _onchange_move_id(self):
+        """Form açılışında satırların boş kalmasını önle (default_get x2many sınırı)."""
+        if not self.move_id:
+            self.line_ids = [(5, 0, 0)]
+            return
+        company = self.company_id or self.env.company
+        self.line_ids = [(5, 0, 0)] + self._prepare_invoice_line_commands(self.move_id, company)
+
     @api.model
     def default_get(self, fields_list):
         vals = super().default_get(fields_list)
         company = self.env.company
         if vals.get('company_id'):
             company = self.env['res.company'].browse(vals['company_id'])
-        # FE'den entegrasyon listesini çek
-        client = self.env['fe.client'].with_company(company.id)
-        data = client.integration_invoice_index()
-        items = data.get('data') or data or []
-        if isinstance(items, dict):
-            items = items.get('items') or []
-        for it in items:
-            name = it.get('name') or it.get('title') or (it.get('vendor') and it['vendor'].get('name')) or 'Integration'
-            ext_id = it.get('id') or it.get('uuid') or ''
-            if ext_id:
-                self.env['fe.integration.temp'].create({
-                    'name': name,
-                    'external_id': str(ext_id),
-                    'company_id': company.id,
-                })
+        default_integration = self.env['fe.invoice.integration'].default_choice_for_company(company)
+        if default_integration and (not fields_list or 'integration_choice_id' in fields_list):
+            vals['integration_choice_id'] = default_integration
         # Satırları One2many komutlarıyla set et
         if vals.get('move_id'):
             move = self.env['account.move'].browse(vals['move_id'])
@@ -458,7 +484,7 @@ class FESendInvoiceWizard(models.TransientModel):
                 'street': ((partner.street or '') + ' ' + (partner.street2 or '')).strip(),
                 'city': (partner.state_id and partner.state_id.name) or '',
                 'zip': partner.zip or '',
-                'country_code': partner.country_id and partner.country_id.code or '',
+                'country_code': self.env['fe.country.mapper'].map_partner_country(partner),
                 'currency_id': move.currency_id.id,
                 'amount_total': move.amount_total,
                 'amount_untaxed': move.amount_untaxed,
@@ -474,33 +500,9 @@ class FESendInvoiceWizard(models.TransientModel):
                 'shipment_courier_tax_number': company.fe_shipment_courier_tax_number or '',
                 'shipment_delivery_date': fields.Date.today(),
             })
-            commands = []
-            for line in move.invoice_line_ids.filtered(lambda l: not l.display_type):
-                taxes = ', '.join([f"{t.name} ({t.amount}%)" for t in line.tax_ids])
-                # Vergi oranını hesapla
-                tax_rate = 0
-                if line.tax_ids:
-                    tax = line.tax_ids[0]
-                    tax_rate = tax.amount or 0
-                # Vergi sıfırsa varsayılan muafiyet bilgilerini ekle
-                exemption_code = None
-                exemption_reason = None
-                if tax_rate == 0:
-                    exemption_code = company.fe_exemption_code or None
-                    exemption_reason = company.fe_exemption_reason or None
-                commands.append((0, 0, {
-                    'name': line.name,
-                    'sku': line.product_id.default_code or '',
-                    'quantity': line.quantity,
-                    'price_unit': line.price_unit,
-                    'taxes': taxes,
-                    'tax_rate': tax_rate,
-                    'subtotal': line.price_subtotal,
-                    'currency_id': move.currency_id.id,
-                    'exemption_code': exemption_code,
-                    'exemption_reason': exemption_reason,
-                }))
-            vals['line_ids'] = commands
+            commands = self._prepare_invoice_line_commands(move, company)
+            if not fields_list or 'line_ids' in fields_list:
+                vals['line_ids'] = commands
         return vals
 
     def _prepare_shipment_data(self):
@@ -524,7 +526,13 @@ class FESendInvoiceWizard(models.TransientModel):
         self.ensure_one()
         move = self.move_id
         if not self.integration_choice_id:
+            if not self.env['fe.invoice.integration'].search([('company_id', '=', self.company_id.id)], limit=1):
+                raise UserError(
+                    _('Kayıtlı fatura entegrasyonu yok. Ayarlar > Şirketler > Fatura Entegratör bölümünden Bağlan\'a tıklayın.')
+                )
             raise UserError(_('Lütfen bir entegrasyon seçin.'))
+        if not self.line_ids:
+            raise UserError(_('Faturada gönderilecek ürün satırı bulunamadı. Faturanın ürün satırlarını kontrol edin.'))
         client = move.company_id.fe_get_client()
         
         # Satır verileri
@@ -534,7 +542,7 @@ class FESendInvoiceWizard(models.TransientModel):
             key = (wl.sku or '', wl.name or '')
             wizard_lines_dict[key] = wl
         
-        for l in move.invoice_line_ids.filtered(lambda x: not x.display_type and x.quantity):
+        for l in self._invoice_product_lines(move):
             tax_rate = 0
             if l.tax_ids:
                 tax = l.tax_ids[0]
@@ -613,7 +621,7 @@ class FESendInvoiceWizard(models.TransientModel):
                 'district': move.partner_id.city or '',
                 'address': (self.street or '')[:250],
                 'postcode': self.zip or '',
-                'country': self.country_code or '',
+                'country': self.env['fe.country.mapper'].map_country_name(self.country_code or ''),
                 'iban': None,
             },
             'is_need_shipment': bool(self.is_need_shipment),
@@ -669,7 +677,7 @@ class FESendInvoiceWizard(models.TransientModel):
             exemption_code = None
             exemption_reason = None
             if move.amount_tax == 0:
-                for line in move.invoice_line_ids.filtered(lambda l: not l.display_type):
+                for line in self._invoice_product_lines(move):
                     if line.tax_ids and line.tax_ids[0].amount == 0:
                         wl_key = (line.product_id.default_code or '', line.name or '')
                         for wl in self.line_ids:
@@ -718,7 +726,7 @@ class FESendInvoiceWizardLine(models.TransientModel):
     price_unit = fields.Monetary(string='Birim Fiyat', currency_field='currency_id')
     taxes = fields.Char(string='Vergiler')
     tax_rate = fields.Float(string='Vergi Oranı (%)', readonly=True)
-    subtotal = fields.Monetary(string='Ara Toplam', currency_field='currency_id')
+    subtotal = fields.Monetary(string='Toplam (KDV Dahil)', currency_field='currency_id')
     currency_id = fields.Many2one('res.currency', default=lambda self: self.env.company.currency_id.id)
     exemption_code = fields.Char(string='Muafiyet Kodu')
     exemption_reason = fields.Char(string='Muafiyet Sebebi')

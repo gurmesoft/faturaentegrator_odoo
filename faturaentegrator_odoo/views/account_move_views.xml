@@ -46,7 +46,7 @@
                         <field name="street"/>
                         <field name="city"/>
                         <field name="zip"/>
-                        <field name="country_code"/>
+                        <field name="country_code" string="Ülke"/>
                     </group>
                     <group string="Tutarlar">
                         <field name="currency_id"/>
@@ -73,7 +73,7 @@
                 </group>
                 <group string="Satırlar">
                     <field name="line_ids" nolabel="1">
-                        <list editable="bottom">
+                        <list>
                             <field name="name" readonly="1"/>
                             <field name="sku" readonly="1"/>
                             <field name="quantity" readonly="1"/>

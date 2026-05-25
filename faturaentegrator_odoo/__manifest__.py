@@ -1,6 +1,6 @@
 {
     'name': 'Fatura Entegrator',
-    'version': '1.0.1',
+    'version': '1.0.2',
     'summary': 'Fatura Entegratör ile sipariş ve fatura entegrasyonu.',
     'description': """
         Fatura Entegratör API ile çoklu şirket bazında sipariş (sale.order) ve fatura (account.move) gönderimi, formalize ve PDF alma işlemleri.

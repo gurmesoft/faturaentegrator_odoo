@@ -1,3 +1,6 @@
+from . import fe_country
+from . import fe_link_mixin
+from . import fe_invoice_integration
 from . import res_company
 from . import fe_client
 from . import sale_order

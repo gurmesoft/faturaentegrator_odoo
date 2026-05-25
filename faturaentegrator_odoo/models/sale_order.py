@@ -5,7 +5,13 @@ from odoo.exceptions import UserError
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
-    fe_invoice_id = fields.Many2one('fe.invoice', string='FE Fatura Kaydı', compute='_compute_fe_invoice_id', store=False, readonly=True)
+    fe_invoice_id = fields.Many2one(
+        'fe.invoice',
+        string='FE Fatura Kaydı',
+        compute='_compute_fe_invoice_id',
+        search='_search_fe_invoice_id',
+        readonly=True,
+    )
     fe_external_id = fields.Char(string='Fatura Entegratör Sipariş ID', related='fe_invoice_id.external_id', store=False, readonly=True)
     fe_invoice_url = fields.Char(string='FE Fatura Linki', related='fe_invoice_id.fe_invoice_url', store=False, readonly=True)
     fe_pdf_url = fields.Char(string='FE PDF URL', related='fe_invoice_id.pdf_url', store=False, readonly=True)
@@ -31,6 +37,12 @@ class SaleOrder(models.Model):
                 ('sale_order_id', '=', order.id)
             ], limit=1, order='create_date desc')
             order.fe_invoice_id = fe_invoice.id if fe_invoice else False
+
+    @api.model
+    def _search_fe_invoice_id(self, operator, value):
+        return self.env['fe.invoice.link.mixin']._search_fe_invoice_by_link(
+            'sale_order_id', operator, value
+        )
     
     def action_view_fe_invoice(self):
         """FE Fatura kaydına git"""
@@ -88,7 +100,7 @@ class SaleOrder(models.Model):
                 'street': partner.street or '',
                 'city': partner.city or '',
                 'zip': partner.zip or '',
-                'country': partner.country_id and partner.country_id.code or '',
+                'country': self.env['fe.country.mapper'].map_partner_country(partner),
             },
             'lines': lines,
         }

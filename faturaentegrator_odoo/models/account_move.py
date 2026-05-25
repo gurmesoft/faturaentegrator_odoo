@@ -5,7 +5,13 @@ from odoo.exceptions import UserError
 class AccountMove(models.Model):
     _inherit = 'account.move'
 
-    fe_invoice_id = fields.Many2one('fe.invoice', string='FE Fatura Kaydı', compute='_compute_fe_invoice_id', store=False, readonly=True)
+    fe_invoice_id = fields.Many2one(
+        'fe.invoice',
+        string='FE Fatura Kaydı',
+        compute='_compute_fe_invoice_id',
+        search='_search_fe_invoice_id',
+        readonly=True,
+    )
     fe_external_id = fields.Char(string='Fatura Entegratör Fatura ID', related='fe_invoice_id.external_id', store=False, readonly=True)
     fe_invoice_url = fields.Char(string='FE Fatura Linki', related='fe_invoice_id.fe_invoice_url', store=False, readonly=True)
     fe_pdf_url = fields.Char(string='FE PDF URL', related='fe_invoice_id.pdf_url', store=False, readonly=True)
@@ -31,6 +37,12 @@ class AccountMove(models.Model):
                 ('account_move_id', '=', move.id)
             ], limit=1, order='create_date desc')
             move.fe_invoice_id = fe_invoice.id if fe_invoice else False
+
+    @api.model
+    def _search_fe_invoice_id(self, operator, value):
+        return self.env['fe.invoice.link.mixin']._search_fe_invoice_by_link(
+            'account_move_id', operator, value
+        )
     
     def action_view_fe_invoice(self):
         """FE Fatura kaydına git"""
