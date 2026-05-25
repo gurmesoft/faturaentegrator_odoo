@@ -466,7 +466,7 @@ class FESendInvoiceWizard(models.TransientModel):
                 'is_internet_sale': company.fe_is_internet_sale,
                 'is_need_shipment': company.fe_is_need_shipment,
                 'payment_method': company.fe_payment_method or 'credit_or_debit',
-                'payment_platform': company.fe_payment_platform or (move.payment_term_id and move.payment_term_id.name) or 'Odoo',
+                'payment_platform': company.fe_payment_platform or (move.invoice_payment_term_id and move.invoice_payment_term_id.name) or 'Odoo',
                 'payment_date': fields.Date.today(),
                 'shipment_company_title': company.fe_shipment_company_title or '',
                 'shipment_company_tax_number': company.fe_shipment_company_tax_number or '',
@@ -622,7 +622,7 @@ class FESendInvoiceWizard(models.TransientModel):
             'internet_sale': {
                 'web_address': self.env['ir.config_parameter'].sudo().get_param('web.base.url'),
                 'payment_method': self.payment_method or 'KREDIBANKAKARTI',
-                'payment_platform': self.payment_platform or (move.payment_term_id and move.payment_term_id.name) or 'Odoo',
+                'payment_platform': self.payment_platform or (move.invoice_payment_term_id and move.invoice_payment_term_id.name) or 'Odoo',
                 'payment_date': (self.payment_date or fields.Date.today()).isoformat(),
             },
             'description': move.company_id.fe_description or '',
